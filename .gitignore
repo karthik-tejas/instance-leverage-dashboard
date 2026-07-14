@@ -1,0 +1,31 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# App database + retained raw uploads (generated)
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/uploads/
+
+# Node / Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.env*.local
+
+# Vercel
+.vercel/
+frontend/.vercel/
+backend/.vercel/
+
+# Env files (Turso creds etc. -- never commit)
+.env
+.env.local
+backend/.env
+
+# Editor / OS
+.DS_Store
+*.swp

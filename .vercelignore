@@ -1,0 +1,7 @@
+.venv
+__pycache__
+.pytest_cache
+data/leverage.db
+data/leverage.db-wal
+data/leverage.db-shm
+data/uploads

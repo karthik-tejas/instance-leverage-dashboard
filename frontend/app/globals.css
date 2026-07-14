@@ -1,0 +1,136 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --background: #f8fafc;
+  --surface: #ffffff;
+  --surface-hover: #f1f5f9;
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --text: #0f172a;
+  --text-muted: #64748b;
+  --text-faint: #94a3b8;
+
+  --brand: #4f46e5;
+  --brand-hover: #4338ca;
+  --brand-soft: #eef2ff;
+  --brand-text-on: #ffffff;
+
+  --positive: #16a34a;
+  --positive-soft: #dcfce7;
+  --negative: #dc2626;
+  --negative-soft: #fee2e2;
+  --warning: #d97706;
+
+  --chart-1: #4f46e5;
+  --chart-2: #16a34a;
+  --chart-3: #db2777;
+  --chart-4: #d97706;
+  --chart-5: #7c3aed;
+  --chart-6: #0891b2;
+  --chart-7: #dc2626;
+  --chart-8: #65a30d;
+  --chart-9: #9333ea;
+  --chart-10: #0d9488;
+
+  --shadow-color: 15 23 42;
+}
+
+.dark {
+  --background: #0b1120;
+  --surface: #131b2e;
+  --surface-hover: #1a2438;
+  --border: #22304a;
+  --border-strong: #2c3c5c;
+  --text: #e8ecf5;
+  --text-muted: #94a3b8;
+  --text-faint: #64748b;
+
+  --brand: #6366f1;
+  --brand-hover: #818cf8;
+  --brand-soft: #1e1b4b;
+  --brand-text-on: #ffffff;
+
+  --positive: #22c55e;
+  --positive-soft: #14291d;
+  --negative: #f87171;
+  --negative-soft: #341418;
+  --warning: #fbbf24;
+
+  --shadow-color: 0 0 0;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-hover: var(--surface-hover);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-text: var(--text);
+  --color-text-muted: var(--text-muted);
+  --color-text-faint: var(--text-faint);
+
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-text-on: var(--brand-text-on);
+
+  --color-positive: var(--positive);
+  --color-positive-soft: var(--positive-soft);
+  --color-negative: var(--negative);
+  --color-negative-soft: var(--negative-soft);
+  --color-warning: var(--warning);
+
+  --font-sans: var(--font-geist-sans), system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+html,
+body {
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+body {
+  min-height: 100%;
+  color: var(--text);
+  background: var(--background);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+a {
+  color: inherit;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 8px;
+}
+
+/* Recharts inherits currentColor-ish defaults poorly across themes; nudge
+   axis/legend text and grid lines to follow our design tokens. */
+.recharts-text {
+  fill: var(--text-muted);
+}
+.recharts-cartesian-grid-horizontal line,
+.recharts-cartesian-grid-vertical line {
+  stroke: var(--border);
+}
+.recharts-tooltip-wrapper {
+  outline: none;
+}
