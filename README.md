@@ -67,7 +67,8 @@ ingest time), not alphabetically.
 | Method | Path | Purpose |
 |---|---|---|
 | GET  | `/api/health` | backend + storage status |
-| POST | `/api/upload` | multipart `.xlsx` → parse + idempotent ingest |
+| POST | `/api/upload` | multipart `.xlsx` → parse + idempotent ingest (files ≲4MB) |
+| POST | `/api/upload-from-blob` | `{blob_url, filename}` → fetch from Vercel Blob + parse + ingest (larger files) |
 | GET  | `/api/months` | loaded months (selector) |
 | GET  | `/api/instances?month_id=` | instance names for a month (drill-down dropdown) |
 | GET  | `/api/all-instances` | every instance ever seen (Compare picker) |
@@ -139,16 +140,37 @@ That's it — no separate hosting for the backend, no server to keep warm, no
 30-day-expiring free databases. Both Vercel and Turso's free tiers are
 indefinite for a workload this size.
 
+### 4. Create a Blob store (only needed for workbooks over ~4MB)
+Vercel Functions hard-cap request bodies at 4.5MB, non-configurable. Most
+monthly workbooks are well under that, but if one isn't, the app
+automatically routes it through [Vercel Blob](https://vercel.com/docs/vercel-blob)
+instead: the browser uploads the file directly to Blob storage, and the
+backend fetches it from there to parse (see `frontend/app/blob-upload/route.ts`
+and `POST /api/upload-from-blob`).
+
+1. In the Vercel dashboard: **Storage → Create Database → Blob**.
+2. Connect the store to this project. Vercel adds a `BLOB_READ_WRITE_TOKEN`
+   env var automatically — no manual configuration needed.
+3. Redeploy (or just wait for the next deploy) so the new env var is picked up.
+
+If you skip this step, uploads under ~4MB keep working exactly as before;
+only larger files would fail with an upload error until a Blob store exists.
+
 ### Notes
 - Locally (no `TURSO_*` env vars set), the app keeps using a local SQLite file
   — nothing about local dev changes.
 - The frontend picks its API base URL automatically (`frontend/lib/api.ts`):
-  same-origin (`/api/...`) on any non-localhost host, `http://localhost:8000`
-  when running on `localhost`. You only need to set `NEXT_PUBLIC_API_URL` if
-  the backend ever lives on a *different* domain than the frontend.
+  same-origin (`/api/...`) whenever the page is served on a standard `:80`/
+  `:443` port (production), or `http://<same-host>:8000` whenever it's served
+  on an explicit non-standard port (local/LAN dev, where the Next.js dev
+  server and `uvicorn` run on different ports of the same host). You only
+  need to set `NEXT_PUBLIC_API_URL` if the backend ever lives on a *different
+  domain* than the frontend.
 - Full-text search (FTS5) is used when the connected engine supports it and
   transparently falls back to a `LIKE`-based search otherwise, so Turso works
   either way.
 - Raw uploaded workbooks are only archived to local disk in local dev
   (`data/uploads/`); Vercel's filesystem is ephemeral, so in production only
-  the parsed, normalized data is persisted (to Turso).
+  the parsed, normalized data is persisted (to Turso). Files routed through
+  Blob storage are deleted from Blob right after being parsed — Blob is only
+  used as a transient pass-through, not long-term storage.

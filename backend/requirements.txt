@@ -5,3 +5,4 @@ openpyxl==3.1.5
 python-multipart==0.0.32
 pydantic==2.13.4
 libsql==0.1.11
+httpx==0.28.1

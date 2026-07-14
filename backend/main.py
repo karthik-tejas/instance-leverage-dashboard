@@ -3,6 +3,9 @@
 Endpoints:
   GET  /api/health                 backend + storage status
   POST /api/upload                 multipart .xlsx -> parse + idempotent ingest
+  POST /api/upload-from-blob       {blob_url, filename} -> fetch + parse + ingest
+                                    (used for files too large for a direct request body;
+                                    see frontend/lib/api.ts's DIRECT_UPLOAD_LIMIT_BYTES)
   GET  /api/months                 list of loaded months (for the selector)
   GET  /api/instances?month_id=    instance names for a month (drill-down dropdown)
   GET  /api/all-instances          every instance ever seen (Compare picker)
@@ -25,12 +28,14 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
+from urllib.parse import urlparse
 
+import httpx
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 import db
-from schemas import IngestResult
+from schemas import BlobUploadRequest, IngestResult
 from parser import parse_workbook
 
 if db.PERSIST_RAW_UPLOADS:
@@ -72,6 +77,31 @@ def _safe_filename(label: str) -> str:
     return "".join(c if c.isalnum() or c in "-_." else "_" for c in label).strip("_") or "month"
 
 
+def _ingest_workbook_at_path(tmp_path: Path, original_name: str) -> IngestResult:
+    """Shared tail end of both upload endpoints: parse a workbook already
+    sitting at a local temp path, archive it if we can, ingest it, clean up."""
+    try:
+        parsed = parse_workbook(tmp_path)
+    except Exception as exc:  # surface parse errors to the user
+        tmp_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=422, detail=f"Failed to parse workbook: {exc}")
+
+    if not parsed["instances"]:
+        tmp_path.unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=422,
+            detail="No instance sheets detected. Is this a Leverage Report file?",
+        )
+
+    if db.PERSIST_RAW_UPLOADS:
+        raw_path = db.UPLOAD_DIR / f"{_safe_filename(parsed['month_label'])}.xlsx"
+        shutil.copy(str(tmp_path), str(raw_path))
+    tmp_path.unlink(missing_ok=True)
+
+    result = db.ingest_month(parsed, source_filename=original_name)
+    return IngestResult(**result)
+
+
 @app.get("/api/health")
 def health():
     return {
@@ -94,26 +124,42 @@ async def upload(file: UploadFile = File(...)):
         shutil.copyfileobj(file.file, tmp_f)
         tmp_path = Path(tmp_f.name)
 
+    return _ingest_workbook_at_path(tmp_path, original_name)
+
+
+@app.post("/api/upload-from-blob", response_model=IngestResult)
+async def upload_from_blob(payload: BlobUploadRequest):
+    """Counterpart to a client-direct-to-Blob upload (see frontend/app/blob-upload).
+
+    Only used for files too large for a plain multipart request body -- Vercel
+    Functions hard-cap that at 4.5MB. The browser uploads straight to Blob
+    storage and hands us just the resulting URL, which we fetch server-side.
+    """
+    if not payload.filename.lower().endswith((".xlsx", ".xlsm")):
+        raise HTTPException(status_code=400, detail="Expected an .xlsx file.")
+    original_name = Path(payload.filename).name
+
+    # Restrict fetches to Vercel Blob's own storage domain -- this endpoint
+    # takes an attacker-influenced URL, so without this it'd be an open SSRF
+    # proxy (e.g. reaching internal/metadata addresses via a crafted blob_url).
+    parsed_url = urlparse(payload.blob_url)
+    if parsed_url.scheme != "https" or not parsed_url.hostname or not parsed_url.hostname.endswith(
+        ".public.blob.vercel-storage.com"
+    ):
+        raise HTTPException(status_code=400, detail="blob_url must be a public Vercel Blob URL.")
+
     try:
-        parsed = parse_workbook(tmp_path)
-    except Exception as exc:  # surface parse errors to the user
-        tmp_path.unlink(missing_ok=True)
-        raise HTTPException(status_code=422, detail=f"Failed to parse workbook: {exc}")
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.get(payload.blob_url)
+            resp.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"Could not fetch uploaded file: {exc}")
 
-    if not parsed["instances"]:
-        tmp_path.unlink(missing_ok=True)
-        raise HTTPException(
-            status_code=422,
-            detail="No instance sheets detected. Is this a Leverage Report file?",
-        )
+    with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp_f:
+        tmp_f.write(resp.content)
+        tmp_path = Path(tmp_f.name)
 
-    if db.PERSIST_RAW_UPLOADS:
-        raw_path = db.UPLOAD_DIR / f"{_safe_filename(parsed['month_label'])}.xlsx"
-        shutil.copy(str(tmp_path), str(raw_path))
-    tmp_path.unlink(missing_ok=True)
-
-    result = db.ingest_month(parsed, source_filename=original_name)
-    return IngestResult(**result)
+    return _ingest_workbook_at_path(tmp_path, original_name)
 
 
 @app.get("/api/months")

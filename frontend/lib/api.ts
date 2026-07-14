@@ -219,9 +219,15 @@ async function getJSON<T>(url: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export async function uploadFile(
-  file: File
-): Promise<{ month_id: number; month_label: string; counts: Record<string, number> }> {
+export type UploadResult = { month_id: number; month_label: string; counts: Record<string, number> };
+
+// Vercel Functions cap request bodies at a hard, non-configurable 4.5MB.
+// Files under this stay on the simple path (direct multipart POST); larger
+// files go straight to Blob storage from the browser instead. Picked with
+// headroom under the real 4.5MB limit to leave room for multipart overhead.
+const DIRECT_UPLOAD_LIMIT_BYTES = 4 * 1024 * 1024;
+
+async function uploadDirect(file: File): Promise<UploadResult> {
   const form = new FormData();
   form.append("file", file);
   const res = await fetch(`${API_BASE}/api/upload`, { method: "POST", body: form });
@@ -230,6 +236,43 @@ export async function uploadFile(
     throw new Error(detail);
   }
   return res.json();
+}
+
+async function uploadViaBlob(
+  file: File,
+  onProgress?: (percentage: number) => void
+): Promise<UploadResult> {
+  // Imported lazily so the (fairly small) @vercel/blob client bundle is only
+  // pulled in when an actual large-file upload happens.
+  const { upload } = await import("@vercel/blob/client");
+  const blob = await upload(file.name, file, {
+    access: "public",
+    handleUploadUrl: "/blob-upload",
+    onUploadProgress: ({ percentage }) => onProgress?.(percentage),
+  });
+
+  let result: UploadResult;
+  try {
+    const res = await fetch(`${API_BASE}/api/upload-from-blob`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ blob_url: blob.url, filename: file.name }),
+    });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "upload failed");
+      throw new Error(detail);
+    }
+    result = await res.json();
+  } finally {
+    // Best-effort cleanup; the file's contents are already in the database
+    // (or the ingest failed and there's nothing worth keeping either way).
+    fetch(`/blob-upload?url=${encodeURIComponent(blob.url)}`, { method: "DELETE" }).catch(() => {});
+  }
+  return result;
+}
+
+export function uploadFile(file: File, onProgress?: (percentage: number) => void): Promise<UploadResult> {
+  return file.size > DIRECT_UPLOAD_LIMIT_BYTES ? uploadViaBlob(file, onProgress) : uploadDirect(file);
 }
 
 export const getMonths = () => getJSON<Month[]>(`${API_BASE}/api/months`);

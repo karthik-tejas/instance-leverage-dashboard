@@ -12,6 +12,11 @@ class IngestResult(BaseModel):
     counts: dict
 
 
+class BlobUploadRequest(BaseModel):
+    blob_url: str
+    filename: str
+
+
 class MonthInfo(BaseModel):
     month_id: int
     month_label: str

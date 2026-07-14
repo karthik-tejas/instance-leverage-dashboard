@@ -6,6 +6,7 @@ import { Spinner } from "./ui";
 
 export default function Upload({ onUploaded }: { onUploaded: (monthId: number) => void }) {
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<number | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
@@ -13,16 +14,18 @@ export default function Upload({ onUploaded }: { onUploaded: (monthId: number) =
     const file = e.target.files?.[0];
     if (!file) return;
     setBusy(true);
+    setProgress(null);
     setErr(null);
     setMsg(null);
     try {
-      const r = await uploadFile(file);
+      const r = await uploadFile(file, (pct) => setProgress(Math.round(pct)));
       setMsg(`Loaded "${r.month_label}" — ${r.counts.instances} instances, ${r.counts.qa_log} Q&A rows.`);
       onUploaded(r.month_id);
     } catch (ex) {
       setErr(ex instanceof Error ? ex.message : "Upload failed");
     } finally {
       setBusy(false);
+      setProgress(null);
       e.target.value = "";
     }
   }
@@ -35,7 +38,7 @@ export default function Upload({ onUploaded }: { onUploaded: (monthId: number) =
       >
         {busy ? (
           <>
-            <Spinner className="text-brand-text-on/80" /> Uploading…
+            <Spinner className="text-brand-text-on/80" /> {progress != null ? `Uploading… ${progress}%` : "Uploading…"}
           </>
         ) : (
           <>
