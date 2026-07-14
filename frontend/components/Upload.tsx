@@ -7,6 +7,7 @@ import { Spinner } from "./ui";
 export default function Upload({ onUploaded }: { onUploaded: (monthId: number) => void }) {
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<number | null>(null);
+  const [phase, setPhase] = useState<"uploading" | "processing">("uploading");
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
@@ -15,10 +16,14 @@ export default function Upload({ onUploaded }: { onUploaded: (monthId: number) =
     if (!file) return;
     setBusy(true);
     setProgress(null);
+    setPhase("uploading");
     setErr(null);
     setMsg(null);
     try {
-      const r = await uploadFile(file, (pct) => setProgress(Math.round(pct)));
+      const r = await uploadFile(file, (pct, ph) => {
+        setProgress(Math.round(pct));
+        setPhase(ph);
+      });
       setMsg(`Loaded "${r.month_label}" — ${r.counts.instances} instances, ${r.counts.qa_log} Q&A rows.`);
       onUploaded(r.month_id);
     } catch (ex) {
@@ -30,6 +35,13 @@ export default function Upload({ onUploaded }: { onUploaded: (monthId: number) =
     }
   }
 
+  const label =
+    progress == null
+      ? "Uploading…"
+      : phase === "processing"
+        ? "Processing on server…"
+        : `Uploading… ${progress}%`;
+
   return (
     <div className="flex flex-col items-end gap-1.5">
       <label
@@ -38,7 +50,7 @@ export default function Upload({ onUploaded }: { onUploaded: (monthId: number) =
       >
         {busy ? (
           <>
-            <Spinner className="text-brand-text-on/80" /> {progress != null ? `Uploading… ${progress}%` : "Uploading…"}
+            <Spinner className="text-brand-text-on/80" /> {label}
           </>
         ) : (
           <>

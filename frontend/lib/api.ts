@@ -240,7 +240,7 @@ async function uploadDirect(file: File): Promise<UploadResult> {
 
 async function uploadViaBlob(
   file: File,
-  onProgress?: (percentage: number) => void
+  onProgress?: (percentage: number, phase: "uploading" | "processing") => void
 ): Promise<UploadResult> {
   // Imported lazily so the (fairly small) @vercel/blob client bundle is only
   // pulled in when an actual large-file upload happens.
@@ -248,8 +248,18 @@ async function uploadViaBlob(
   const blob = await upload(file.name, file, {
     access: "public",
     handleUploadUrl: "/blob-upload",
-    onUploadProgress: ({ percentage }) => onProgress?.(percentage),
+    multipart: true, // splits into parts uploaded in parallel with per-part retry,
+    // far more resilient than one large PUT that has to complete in a single
+    // connection (which is prone to stalling/retrying-from-scratch near 100%
+    // on any single-part timeout or transient failure).
+    onUploadProgress: ({ percentage }) => onProgress?.(percentage, "uploading"),
   });
+
+  // The browser->Blob transfer is done; what follows (backend fetching the
+  // blob, parsing the workbook, and writing many rows to Turso) can itself
+  // take a while for a large file but has no progress events of its own --
+  // surface that as a distinct phase so it doesn't look like a stalled upload.
+  onProgress?.(100, "processing");
 
   let result: UploadResult;
   try {
@@ -271,7 +281,10 @@ async function uploadViaBlob(
   return result;
 }
 
-export function uploadFile(file: File, onProgress?: (percentage: number) => void): Promise<UploadResult> {
+export function uploadFile(
+  file: File,
+  onProgress?: (percentage: number, phase: "uploading" | "processing") => void
+): Promise<UploadResult> {
   return file.size > DIRECT_UPLOAD_LIMIT_BYTES ? uploadViaBlob(file, onProgress) : uploadDirect(file);
 }
 

@@ -257,6 +257,28 @@ def _query_one(conn, sql: str, params: Iterable = ()) -> dict | None:
 # Ingest
 # --------------------------------------------------------------------------- #
 
+# Turso/libsql is a remote, HTTP-backed database -- every conn.execute() is a
+# network round trip. A workbook can have thousands of qa_log/top_documents
+# rows, so inserting them one row at a time (fine for local SQLite) turns
+# into thousands of sequential round trips against Turso, easily minutes of
+# latency and a serverless-function-timeout risk. Batching many rows into one
+# multi-VALUES INSERT per chunk cuts that to a handful of round trips
+# regardless of which driver is behind `conn`.
+_INSERT_CHUNK_SIZE = 500
+
+
+def _insert_many(conn, table: str, columns: tuple[str, ...], rows: list[tuple]) -> None:
+    if not rows:
+        return
+    placeholders = "(" + ",".join("?" * len(columns)) + ")"
+    col_list = ",".join(columns)
+    for i in range(0, len(rows), _INSERT_CHUNK_SIZE):
+        chunk = rows[i : i + _INSERT_CHUNK_SIZE]
+        sql = f"INSERT INTO {table}({col_list}) VALUES " + ",".join([placeholders] * len(chunk))
+        params = tuple(v for row in chunk for v in row)
+        conn.execute(sql, params)
+
+
 def upsert_instance(conn, name: str) -> int:
     """Insert instance if new, else return existing id. Name is the key."""
     name = (name or "").strip()
@@ -334,56 +356,54 @@ def ingest_month(
 
         # Summary sheet
         seen_summary = set()
+        summary_rows: list[tuple] = []
         for s in parsed.get("summary", []):
             iid = upsert_instance(conn, s["instance"])
             if iid in seen_summary:  # defensive: skip duplicate resolved names
                 continue
             seen_summary.add(iid)
-            conn.execute(
-                "INSERT INTO summary_stats(month_id, instance_id, questions_asked, active_users) "
-                "VALUES (?,?,?,?)",
-                (month_id, iid, _to_int(s.get("questions_asked")), _to_int(s.get("active_users"))),
-            )
+            summary_rows.append((month_id, iid, _to_int(s.get("questions_asked")), _to_int(s.get("active_users"))))
+        _insert_many(conn, "summary_stats", ("month_id", "instance_id", "questions_asked", "active_users"), summary_rows)
 
-        # Per-instance blocks
-        n_doc = n_q = n_fb = n_qa = 0
+        # Per-instance blocks -- collected across ALL instances first, then
+        # inserted as one batch per table (see _insert_many / _INSERT_CHUNK_SIZE).
+        doc_rows: list[tuple] = []
+        q_rows: list[tuple] = []
+        fb_rows: list[tuple] = []
+        qa_rows: list[tuple] = []
         for name, inst in parsed.get("instances", {}).items():
             iid = upsert_instance(conn, name)
 
             for d in inst.get("documents", []):
-                conn.execute(
-                    "INSERT INTO top_documents(month_id, instance_id, date_uploaded, doc_url, doc_name, frequency) "
-                    "VALUES (?,?,?,?,?,?)",
-                    (month_id, iid, _to_str(d.get("date_uploaded")), _to_str(d.get("doc_url")),
-                     _to_str(d.get("doc_name")), _to_int(d.get("frequency"))),
-                )
-                n_doc += 1
+                doc_rows.append((
+                    month_id, iid, _to_str(d.get("date_uploaded")), _to_str(d.get("doc_url")),
+                    _to_str(d.get("doc_name")), _to_int(d.get("frequency")),
+                ))
 
             for q in inst.get("questions", []):
-                conn.execute(
-                    "INSERT INTO top_questions(month_id, instance_id, question, count) VALUES (?,?,?,?)",
-                    (month_id, iid, _to_str(q.get("question")), _to_int(q.get("count"))),
-                )
-                n_q += 1
+                q_rows.append((month_id, iid, _to_str(q.get("question")), _to_int(q.get("count"))))
 
             for f in inst.get("feedback", []):
-                conn.execute(
-                    "INSERT INTO feedback(month_id, instance_id, question, answer, feedback, count, likes, dislikes) "
-                    "VALUES (?,?,?,?,?,?,?,?)",
-                    (month_id, iid, _to_str(f.get("question")), _to_str(f.get("answer")),
-                     _to_str(f.get("feedback")), _to_int(f.get("count")),
-                     _to_int(f.get("likes")), _to_int(f.get("dislikes"))),
-                )
-                n_fb += 1
+                fb_rows.append((
+                    month_id, iid, _to_str(f.get("question")), _to_str(f.get("answer")),
+                    _to_str(f.get("feedback")), _to_int(f.get("count")),
+                    _to_int(f.get("likes")), _to_int(f.get("dislikes")),
+                ))
 
             for row in inst.get("qa", []):
-                conn.execute(
-                    "INSERT INTO qa_log(month_id, instance_id, date, question, answer, source) "
-                    "VALUES (?,?,?,?,?,?)",
-                    (month_id, iid, _to_str(row.get("date")), _to_str(row.get("question")),
-                     _to_str(row.get("answer")), _to_str(row.get("source"))),
-                )
-                n_qa += 1
+                qa_rows.append((
+                    month_id, iid, _to_str(row.get("date")), _to_str(row.get("question")),
+                    _to_str(row.get("answer")), _to_str(row.get("source")),
+                ))
+
+        _insert_many(conn, "top_documents",
+                     ("month_id", "instance_id", "date_uploaded", "doc_url", "doc_name", "frequency"), doc_rows)
+        _insert_many(conn, "top_questions", ("month_id", "instance_id", "question", "count"), q_rows)
+        _insert_many(conn, "feedback",
+                     ("month_id", "instance_id", "question", "answer", "feedback", "count", "likes", "dislikes"),
+                     fb_rows)
+        _insert_many(conn, "qa_log", ("month_id", "instance_id", "date", "question", "answer", "source"), qa_rows)
+        n_doc, n_q, n_fb, n_qa = len(doc_rows), len(q_rows), len(fb_rows), len(qa_rows)
 
     return {
         "month_id": month_id,
