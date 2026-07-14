@@ -251,7 +251,10 @@ async function uploadViaBlob(
   // a CORS error. A single PUT is the right tool for workbook-sized files.
   const { upload } = await import("@vercel/blob/client");
   const blob = await upload(file.name, file, {
-    access: "public",
+    // Must match the access mode configured on the connected Blob store.
+    // This project uses private storage because uploaded workbooks contain
+    // report data that should not be publicly readable by URL.
+    access: "private",
     handleUploadUrl: "/blob-upload",
     onUploadProgress: ({ percentage }) => onProgress?.(percentage, "uploading"),
   });

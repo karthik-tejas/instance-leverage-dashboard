@@ -148,7 +148,9 @@ instead: the browser uploads the file directly to Blob storage, and the
 backend fetches it from there to parse (see `frontend/app/blob-upload/route.ts`
 and `POST /api/upload-from-blob`).
 
-1. In the Vercel dashboard: **Storage → Create Database → Blob**.
+1. In the Vercel dashboard: **Storage → Create Database → Blob**, and choose
+   **Private** access. The app's upload and backend-fetch flow is configured
+   for private workbooks; the code and store access mode must match.
 2. Connect the store to this project. Vercel adds a `BLOB_READ_WRITE_TOKEN`
    env var automatically — no manual configuration needed.
 3. Redeploy (or just wait for the next deploy) so the new env var is picked up.

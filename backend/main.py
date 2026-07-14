@@ -144,13 +144,27 @@ async def upload_from_blob(payload: BlobUploadRequest):
     # proxy (e.g. reaching internal/metadata addresses via a crafted blob_url).
     parsed_url = urlparse(payload.blob_url)
     if parsed_url.scheme != "https" or not parsed_url.hostname or not parsed_url.hostname.endswith(
-        ".public.blob.vercel-storage.com"
+        ".private.blob.vercel-storage.com"
     ):
-        raise HTTPException(status_code=400, detail="blob_url must be a public Vercel Blob URL.")
+        raise HTTPException(status_code=400, detail="blob_url must be a private Vercel Blob URL.")
+
+    # Private blobs cannot be read by URL alone. Client-upload token creation
+    # already requires this static token, and the backend uses the same
+    # server-only credential to retrieve the workbook for parsing. Never send
+    # this value to the browser.
+    blob_token = os.environ.get("BLOB_READ_WRITE_TOKEN", "").strip()
+    if not blob_token:
+        raise HTTPException(
+            status_code=500,
+            detail="BLOB_READ_WRITE_TOKEN is not configured for the backend service.",
+        )
 
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.get(payload.blob_url)
+            resp = await client.get(
+                payload.blob_url,
+                headers={"Authorization": f"Bearer {blob_token}"},
+            )
             resp.raise_for_status()
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail=f"Could not fetch uploaded file: {exc}")

@@ -17,6 +17,7 @@ import pytest
 _TMP = tempfile.mkdtemp()
 os.environ["LEVERAGE_DB"] = str(Path(_TMP) / "test.db")
 os.environ["LEVERAGE_UPLOADS"] = str(Path(_TMP) / "uploads")
+os.environ["BLOB_READ_WRITE_TOKEN"] = "test-token"
 
 BACKEND = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BACKEND))
@@ -30,8 +31,8 @@ client = TestClient(app)
 @pytest.mark.parametrize(
     "payload",
     [
-        {"blob_url": "https://abc123.public.blob.vercel-storage.com/report.csv", "filename": "report.csv"},
-        {"blob_url": "https://abc123.public.blob.vercel-storage.com/report.txt", "filename": "report"},
+        {"blob_url": "https://abc123.private.blob.vercel-storage.com/report.csv", "filename": "report.csv"},
+        {"blob_url": "https://abc123.private.blob.vercel-storage.com/report.txt", "filename": "report"},
     ],
 )
 def test_rejects_non_workbook_filename(payload):
@@ -43,9 +44,10 @@ def test_rejects_non_workbook_filename(payload):
 @pytest.mark.parametrize(
     "blob_url",
     [
-        "http://abc123.public.blob.vercel-storage.com/report.xlsx",  # not https
+        "http://abc123.private.blob.vercel-storage.com/report.xlsx",  # not https
+        "https://abc123.public.blob.vercel-storage.com/report.xlsx",  # wrong access mode
         "https://evil.example.com/report.xlsx",  # wrong host entirely
-        "https://abc123.public.blob.vercel-storage.com.evil.com/report.xlsx",  # lookalike suffix attack
+        "https://abc123.private.blob.vercel-storage.com.evil.com/report.xlsx",  # lookalike suffix attack
         "https://internal-metadata.service/report.xlsx",  # arbitrary SSRF target
         "not-a-url",
     ],
@@ -56,14 +58,14 @@ def test_rejects_urls_outside_vercel_blob_domain(blob_url):
     assert "vercel blob" in r.json()["detail"].lower()
 
 
-def test_accepts_well_formed_public_blob_url_shape():
+def test_accepts_well_formed_private_blob_url_shape():
     # Passes the guard (400 -> further along the pipeline) even though the
     # domain doesn't actually exist; the real HTTP fetch then fails with a
     # 502, proving the SSRF guard let a correctly-shaped URL through.
     r = client.post(
         "/api/upload-from-blob",
         json={
-            "blob_url": "https://doesnotexist123456.public.blob.vercel-storage.com/report.xlsx",
+            "blob_url": "https://doesnotexist123456.private.blob.vercel-storage.com/report.xlsx",
             "filename": "report.xlsx",
         },
     )
