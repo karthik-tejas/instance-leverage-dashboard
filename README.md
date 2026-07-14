@@ -142,6 +142,10 @@ indefinite for a workload this size.
 ### Notes
 - Locally (no `TURSO_*` env vars set), the app keeps using a local SQLite file
   — nothing about local dev changes.
+- The frontend picks its API base URL automatically (`frontend/lib/api.ts`):
+  same-origin (`/api/...`) on any non-localhost host, `http://localhost:8000`
+  when running on `localhost`. You only need to set `NEXT_PUBLIC_API_URL` if
+  the backend ever lives on a *different* domain than the frontend.
 - Full-text search (FTS5) is used when the connected engine supports it and
   transparently falls back to a `LIKE`-based search otherwise, so Turso works
   either way.

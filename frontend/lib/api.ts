@@ -1,5 +1,19 @@
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "http://localhost:8000";
+// In production (Vercel Services), the frontend and backend live on the same
+// origin -- vercel.json rewrites /api/* to the backend service -- so a plain
+// relative path ("/api/...") is correct and no env var is needed. Locally
+// the frontend (e.g. :3000) and backend (e.g. :8000) run on different ports,
+// so we default to localhost:8000 there. NEXT_PUBLIC_API_URL can always
+// override this explicitly (e.g. a backend on a different domain).
+function resolveApiBase(): string {
+  const configured = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "");
+  if (configured) return configured;
+  if (typeof window !== "undefined" && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
+    return "";
+  }
+  return "http://localhost:8000";
+}
+
+const API_BASE = resolveApiBase();
 
 export interface Month {
   month_id: number;
