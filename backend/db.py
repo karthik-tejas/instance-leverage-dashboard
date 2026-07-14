@@ -41,12 +41,20 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
+def _env(name: str, default: str) -> str:
+    """os.environ.get with whitespace stripped and empty-string treated as
+    unset, so an accidentally-blank env var (e.g. cleared in a dashboard UI)
+    falls back to the default instead of resolving to an empty/invalid value."""
+    value = os.environ.get(name, "").strip()
+    return value or default
+
+
 # Defaults resolve relative to the project root (parent of backend/), not the
 # process cwd, so `uvicorn main:app` works the same whether it's launched from
 # the repo root or from inside backend/.
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DB_PATH = Path(os.environ.get("LEVERAGE_DB", _PROJECT_ROOT / "data" / "leverage.db")).resolve()
-UPLOAD_DIR = Path(os.environ.get("LEVERAGE_UPLOADS", _PROJECT_ROOT / "data" / "uploads")).resolve()
+DB_PATH = Path(_env("LEVERAGE_DB", str(_PROJECT_ROOT / "data" / "leverage.db"))).resolve()
+UPLOAD_DIR = Path(_env("LEVERAGE_UPLOADS", str(_PROJECT_ROOT / "data" / "uploads"))).resolve()
 
 TURSO_URL = os.environ.get("TURSO_DATABASE_URL", "").strip()
 TURSO_TOKEN = os.environ.get("TURSO_AUTH_TOKEN", "").strip()

@@ -39,11 +39,15 @@ db.init_db()  # create tables (+ best-effort FTS5) on first boot
 
 app = FastAPI(title="Leverage Report Dashboard API", version="1.0.0")
 
-# Allow the Next.js dev server. Override with LEVERAGE_CORS for other origins.
-# In production behind Vercel Services this is same-origin and unused.
+# Allow the Next.js dev server (both hostname spellings, since browsers treat
+# localhost and 127.0.0.1 as different origins). Override with LEVERAGE_CORS
+# for other origins -- a blank/whitespace-only value is treated as unset, not
+# as "block everything". In production behind Vercel Services this is
+# same-origin and unused.
+_DEFAULT_CORS = "http://localhost:3000,http://127.0.0.1:3000"
 _CORS_ORIGINS = [
     o.strip()
-    for o in os.environ.get("LEVERAGE_CORS", "http://localhost:3000").split(",")
+    for o in (os.environ.get("LEVERAGE_CORS", "").strip() or _DEFAULT_CORS).split(",")
     if o.strip()
 ]
 app.add_middleware(
