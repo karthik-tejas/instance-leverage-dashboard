@@ -244,14 +244,15 @@ async function uploadViaBlob(
 ): Promise<UploadResult> {
   // Imported lazily so the (fairly small) @vercel/blob client bundle is only
   // pulled in when an actual large-file upload happens.
+  // NOT using multipart:true here -- Vercel's own guidance is to reserve it
+  // for files over 100MB, and in practice its create/complete steps go
+  // through vercel.com's own API (not the *.blob.vercel-storage.com CDN),
+  // which rejects cross-origin browser calls from arbitrary app domains with
+  // a CORS error. A single PUT is the right tool for workbook-sized files.
   const { upload } = await import("@vercel/blob/client");
   const blob = await upload(file.name, file, {
     access: "public",
     handleUploadUrl: "/blob-upload",
-    multipart: true, // splits into parts uploaded in parallel with per-part retry,
-    // far more resilient than one large PUT that has to complete in a single
-    // connection (which is prone to stalling/retrying-from-scratch near 100%
-    // on any single-part timeout or transient failure).
     onUploadProgress: ({ percentage }) => onProgress?.(percentage, "uploading"),
   });
 
